@@ -1,5 +1,5 @@
 # ============================================================
-#  KANBAN PRODUCTION CALCULATOR (UI + BUG FIXES 2.0)
+#  KANBAN PRODUCTION CALCULATOR (UI + DELETE + BUG FIXES)
 # ============================================================
 import io
 import os
@@ -90,7 +90,7 @@ class GenerateCardsIn(BaseModel):
 # ============================================================
 #  ПРИЛОЖЕНИЕ
 # ============================================================
-app = FastAPI(title="Kanban Production Calculator", version="3.3")
+app = FastAPI(title="Kanban Production Calculator", version="3.4")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 def get_db():
@@ -164,6 +164,15 @@ def update_material_name(material_id: int, p: MaterialNameUpdate, db: Session = 
 @app.get("/kanban/cards/")
 def list_cards(db: Session = Depends(get_db)): return db.query(KanbanCard).filter(KanbanCard.is_active == True).all()
 
+# --- НОВЫЙ ЭНДПОИНТ ДЛЯ УДАЛЕНИЯ ---
+@app.delete("/kanban/card/{card_id}/")
+def delete_card(card_id: int, db: Session = Depends(get_db)):
+    card = db.query(KanbanCard).get(card_id)
+    if not card: raise HTTPException(404, "Карточка не найдена")
+    card.is_active = False # Мягкое удаление
+    db.commit()
+    return {"status": "deleted"}
+
 @app.post("/kanban/calc/")
 def kanban_calc(D: float, L: float, S: float, C: float):
     return compute_kanban_levels(D, L, S, C)
@@ -177,6 +186,7 @@ def generate_cards(p: GenerateCardsIn, db: Session = Depends(get_db)):
     N = calc["cards"]["N_rounded_up"]
     ROP = calc["levels"]["reorder_point"]
     
+    # При генерации новых карточек, старые автоматически скрываются
     for c in db.query(KanbanCard).filter_by(material_id=p.material_id, site_id=p.site_id).all():
         c.is_active = False
         
@@ -237,7 +247,10 @@ def index():
         .card-list { display: flex; flex-direction: column; gap: 10px; }
         .card-item { border: 1px solid #eee; padding: 12px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; }
         .card-info { font-size: 14px; }
-        .card-actions a { display: inline-block; padding: 8px 12px; background: #27ae60; color: white; text-decoration: none; border-radius: 4px; font-size: 12px; }
+        
+        .actions-container { display: flex; flex-direction: column; gap: 8px; }
+        .btn-download { display: inline-block; padding: 8px 12px; background: #27ae60; color: white; text-decoration: none; border-radius: 4px; font-size: 12px; text-align: center; border: none; cursor: pointer; }
+        .btn-delete { display: inline-block; padding: 8px 12px; background: #e74c3c; color: white; text-decoration: none; border-radius: 4px; font-size: 12px; text-align: center; border: none; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -298,7 +311,7 @@ def index():
             lblS: "Страховой запас (%)", lblC: "Вместимость контейнера",
             btnCalc: "Рассчитать", btnGen: "Создать карточки",
             resReorder: "Точка заказа:", resMax: "Макс. запас:", resCards: "Кол-во карточек:",
-            listTitle: "Активные карточки", download: "Скачать PDF", noCards: "Нет активных карточек",
+            listTitle: "Активные карточки", download: "PDF", delete: "Удалить", noCards: "Нет активных карточек",
             lang: "EN"
         },
         en: {
@@ -308,7 +321,7 @@ def index():
             lblS: "Safety Stock (%)", lblC: "Container Capacity",
             btnCalc: "Calculate", btnGen: "Generate Cards",
             resReorder: "Reorder Point:", resMax: "Max Stock:", resCards: "Cards Qty:",
-            listTitle: "Active Cards", download: "Download PDF", noCards: "No active cards",
+            listTitle: "Active Cards", download: "PDF", delete: "Delete", noCards: "No active cards",
             lang: "RU"
         }
     };
@@ -373,7 +386,6 @@ def index():
     }
 
     async function calculate() {
-        // Заменяем запятые на точки для правильного парсинга чисел
         const D = parseFloat(document.getElementById('D').value.replace(',', '.'));
         const L = parseFloat(document.getElementById('L').value.replace(',', '.'));
         const S = parseFloat(document.getElementById('S').value.replace(',', '.')) / 100;
@@ -445,6 +457,22 @@ def index():
         }
     }
 
+    async function deleteCard(cardId) {
+        const msg = currentLang === 'ru' ? 'Вы уверены, что хотите удалить эту карточку? (Она будет скрыта из активных)' : 'Are you sure you want to delete this card?';
+        if (!confirm(msg)) return;
+
+        try {
+            const res = await fetch(`/kanban/card/${cardId}/`, { method: 'DELETE' });
+            if (res.ok) {
+                await loadCards(); // Обновляем список
+            } else {
+                alert("Ошибка при удалении");
+            }
+        } catch (e) {
+            alert("Ошибка сети: " + e.message);
+        }
+    }
+
     async function loadCards() {
         try {
             const res = await fetch('/kanban/cards/');
@@ -465,14 +493,14 @@ def index():
                         <strong>${c.card_number}</strong><br>
                         <span style="color: #7f8c8d;">${c.container_capacity} ед.</span>
                     </div>
-                    <div class="card-actions">
-                        <a href="/kanban/card/${c.id}/pdf/">${t.download}</a>
+                    <div class="actions-container">
+                        <a href="/kanban/card/${c.id}/pdf/" class="btn-download">${t.download}</a>
+                        <button onclick="deleteCard(${c.id})" class="btn-delete">${t.delete}</button>
                     </div>
                 </div>
             `).join('');
         } catch (e) {
             console.error(e);
-            // Не показываем алерт при ошибке загрузки списка, чтобы не раздражать
         }
     }
 
