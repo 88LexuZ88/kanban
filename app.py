@@ -1,5 +1,5 @@
 # ============================================================
-#  KANBAN PRODUCTION CALCULATOR (UI + BUG FIXES)
+#  KANBAN PRODUCTION CALCULATOR (UI + BUG FIXES 2.0)
 # ============================================================
 import io
 import os
@@ -58,37 +58,6 @@ class Material(Base):
     kind = Column(String, default="main")
     density_kg_m3 = Column(Float, nullable=True)
 
-class Product(Base):
-    __tablename__ = "products"
-    id = Column(Integer, primary_key=True)
-    code = Column(String, unique=True, nullable=False)
-    name = Column(String, nullable=False)
-
-class Packaging(Base):
-    __tablename__ = "packagings"
-    id = Column(Integer, primary_key=True)
-    code = Column(String, unique=True, nullable=False)
-    name = Column(String, nullable=False)
-    packaging_type = Column(String, nullable=False)
-    capacity = Column(Float, nullable=False)
-    capacity_unit = Column(String, nullable=False)
-    tare_weight_kg = Column(Float, nullable=True)
-    net_weight_kg = Column(Float, nullable=True)
-    is_returnable = Column(Boolean, default=False)
-    notes = Column(Text, nullable=True)
-    parent_id = Column(Integer, ForeignKey("packagings.id"), nullable=True)
-    children_per_unit = Column(Float, nullable=True)
-
-class MaterialPackaging(Base):
-    __tablename__ = "material_packagings"
-    __table_args__ = (UniqueConstraint("material_id", "packaging_id"),)
-    id = Column(Integer, primary_key=True)
-    material_id = Column(Integer, ForeignKey("materials.id"), nullable=False)
-    packaging_id = Column(Integer, ForeignKey("packagings.id"), nullable=False)
-    is_primary = Column(Boolean, default=False)
-    supplier = Column(String, nullable=True)
-    part_number = Column(String, nullable=True)
-
 class KanbanCard(Base):
     __tablename__ = "kanban_cards"
     id = Column(Integer, primary_key=True)
@@ -101,44 +70,11 @@ class KanbanCard(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=_now)
 
-class StockLevel(Base):
-    __tablename__ = "stock_levels"
-    __table_args__ = (UniqueConstraint("material_id", "site_id"),)
-    id = Column(Integer, primary_key=True)
-    material_id = Column(Integer, ForeignKey("materials.id"), nullable=False)
-    site_id = Column(Integer, ForeignKey("sites.id"), nullable=False)
-    quantity = Column(Float, default=0.0, nullable=False)
-    updated_at = Column(DateTime, default=_now, onupdate=_now)
-
-class StockMovement(Base):
-    __tablename__ = "stock_movements"
-    id = Column(Integer, primary_key=True)
-    material_id = Column(Integer, ForeignKey("materials.id"), nullable=False)
-    site_id = Column(Integer, ForeignKey("sites.id"), nullable=False)
-    movement_type = Column(String, nullable=False)
-    quantity = Column(Float, nullable=False)
-    quantity_before = Column(Float, nullable=False)
-    quantity_after = Column(Float, nullable=False)
-    reason = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=_now)
-
 Base.metadata.create_all(bind=engine)
 
 # ============================================================
 #  СХЕМЫ ДАННЫХ
 # ============================================================
-class SiteIn(BaseModel):
-    name: str
-    code: str
-    site_type: str = "production"
-
-class MaterialIn(BaseModel):
-    code: str
-    name: str
-    unit: str = "кг"
-    kind: str = "main"
-    density_kg_m3: Optional[float] = None
-
 class MaterialNameUpdate(BaseModel):
     name: str
 
@@ -154,7 +90,7 @@ class GenerateCardsIn(BaseModel):
 # ============================================================
 #  ПРИЛОЖЕНИЕ
 # ============================================================
-app = FastAPI(title="Kanban Production Calculator", version="3.2")
+app = FastAPI(title="Kanban Production Calculator", version="3.3")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 def get_db():
@@ -228,6 +164,10 @@ def update_material_name(material_id: int, p: MaterialNameUpdate, db: Session = 
 @app.get("/kanban/cards/")
 def list_cards(db: Session = Depends(get_db)): return db.query(KanbanCard).filter(KanbanCard.is_active == True).all()
 
+@app.post("/kanban/calc/")
+def kanban_calc(D: float, L: float, S: float, C: float):
+    return compute_kanban_levels(D, L, S, C)
+
 @app.post("/kanban/generate-cards/")
 def generate_cards(p: GenerateCardsIn, db: Session = Depends(get_db)):
     mat = db.query(Material).get(p.material_id)
@@ -266,7 +206,7 @@ def seed_demo(db: Session = Depends(get_db)):
     return {"status": "seeded"}
 
 # ============================================================
-#  HTML ИНТЕРФЕЙС (ГЛАВНАЯ СТРАНИЦА)
+#  HTML ИНТЕРФЕЙС
 # ============================================================
 @app.get("/", response_class=HTMLResponse)
 def index():
@@ -318,19 +258,19 @@ def index():
         </div>
         <div class="form-group">
             <label id="lbl-d">Дневная потребность (шт/кг)</label>
-            <input type="number" id="D" value="400">
+            <input type="number" id="D" value="400" step="any">
         </div>
         <div class="form-group">
             <label id="lbl-l">Время пополнения (дней)</label>
-            <input type="number" id="L" step="0.1" value="1.5">
+            <input type="number" id="L" value="1.5" step="any">
         </div>
         <div class="form-group">
             <label id="lbl-s">Страховой запас (%)</label>
-            <input type="number" id="S" value="20">
+            <input type="number" id="S" value="20" step="any">
         </div>
         <div class="form-group">
             <label id="lbl-c">Вместимость контейнера</label>
-            <input type="number" id="C" value="50">
+            <input type="number" id="C" value="50" step="any">
         </div>
         <button class="btn" onclick="calculate()" id="btn-calc">Рассчитать</button>
         
@@ -403,21 +343,24 @@ def index():
     }
 
     async function loadMaterials() {
-        let res = await fetch('/materials/');
-        let mats = await res.json();
-        
-        // Если база пустая, автоматически загружаем демо-данные
-        if (mats.length === 0) {
-            document.getElementById('material_id').innerHTML = '<option>Загрузка...</option>';
-            await fetch('/seed-demo/', { method: 'POST' });
-            res = await fetch('/materials/');
-            mats = await res.json();
-        }
+        try {
+            let res = await fetch('/materials/');
+            let mats = await res.json();
+            
+            if (mats.length === 0) {
+                document.getElementById('material_id').innerHTML = '<option>Загрузка...</option>';
+                await fetch('/seed-demo/', { method: 'POST' });
+                res = await fetch('/materials/');
+                mats = await res.json();
+            }
 
-        materialsData = mats;
-        const select = document.getElementById('material_id');
-        select.innerHTML = mats.map(m => `<option value="${m.id}">${m.name} (${m.code})</option>`).join('');
-        updateNameField();
+            materialsData = mats;
+            const select = document.getElementById('material_id');
+            select.innerHTML = mats.map(m => `<option value="${m.id}">${m.name} (${m.code})</option>`).join('');
+            updateNameField();
+        } catch (e) {
+            console.error(e);
+        }
     }
 
     function updateNameField() {
@@ -430,20 +373,31 @@ def index():
     }
 
     async function calculate() {
-        const D = parseFloat(document.getElementById('D').value);
-        const L = parseFloat(document.getElementById('L').value);
-        const S = parseFloat(document.getElementById('S').value) / 100;
-        const C = parseFloat(document.getElementById('C').value);
+        // Заменяем запятые на точки для правильного парсинга чисел
+        const D = parseFloat(document.getElementById('D').value.replace(',', '.'));
+        const L = parseFloat(document.getElementById('L').value.replace(',', '.'));
+        const S = parseFloat(document.getElementById('S').value.replace(',', '.')) / 100;
+        const C = parseFloat(document.getElementById('C').value.replace(',', '.'));
 
-        const res = await fetch(`/kanban/calc/?D=${D}&L=${L}&S=${S}&C=${C}`, { method: 'POST' });
-        const data = await res.json();
-        
-        currentCalcResult = { D, L, S, C };
-        
-        document.getElementById('result').style.display = 'block';
-        document.getElementById('val-reorder').innerText = data.levels.reorder_point;
-        document.getElementById('val-max').innerText = data.levels.max_stock;
-        document.getElementById('val-cards').innerText = data.cards.N_rounded_up;
+        if (isNaN(D) || isNaN(L) || isNaN(S) || isNaN(C)) {
+            alert(currentLang === 'ru' ? "Пожалуйста, используйте точку или запятую для дробей." : "Please use dots for decimals.");
+            return;
+        }
+
+        try {
+            const res = await fetch(`/kanban/calc/?D=${D}&L=${L}&S=${S}&C=${C}`, { method: 'POST' });
+            if (!res.ok) throw new Error('Ошибка расчета на сервере');
+            
+            const data = await res.json();
+            currentCalcResult = { D, L, S, C };
+            
+            document.getElementById('result').style.display = 'block';
+            document.getElementById('val-reorder').innerText = data.levels.reorder_point;
+            document.getElementById('val-max').innerText = data.levels.max_stock;
+            document.getElementById('val-cards').innerText = data.cards.N_rounded_up;
+        } catch (e) {
+            alert("Ошибка: " + e.message);
+        }
     }
 
     async function generateCards() {
@@ -457,23 +411,21 @@ def index():
 
         const newName = document.getElementById('material_name_input').value;
 
-        // 1. Сохраняем новое название материала, если его изменили
-        if (newName) {
-            await fetch(`/materials/${material_id}/name/`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newName })
-            });
-        }
-
-        // 2. Создаем карточки
-        const payload = {
-            material_id: material_id,
-            site_id: 1,
-            ...currentCalcResult
-        };
-
         try {
+            if (newName) {
+                await fetch(`/materials/${material_id}/name/`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: newName })
+                });
+            }
+
+            const payload = {
+                material_id: material_id,
+                site_id: 1,
+                ...currentCalcResult
+            };
+
             const res = await fetch('/kanban/generate-cards/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -482,8 +434,8 @@ def index():
             
             if (res.ok) {
                 alert(currentLang === 'ru' ? 'Карточки успешно созданы!' : 'Cards generated successfully!');
-                loadCards();
-                loadMaterials(); // Обновляем список, чтобы увидеть новое имя
+                await loadCards();
+                await loadMaterials();
             } else {
                 const err = await res.json();
                 alert("Ошибка сервера: " + JSON.stringify(err));
@@ -494,27 +446,34 @@ def index():
     }
 
     async function loadCards() {
-        const res = await fetch('/kanban/cards/');
-        const cards = await res.json();
-        const container = document.getElementById('cards-container');
-        const t = translations[currentLang];
+        try {
+            const res = await fetch('/kanban/cards/');
+            if (!res.ok) throw new Error('Не удалось загрузить карточки');
+            
+            const cards = await res.json();
+            const container = document.getElementById('cards-container');
+            const t = translations[currentLang];
 
-        if (cards.length === 0) {
-            container.innerHTML = `<p style="text-align:center; color:#7f8c8d;">${t.noCards}</p>`;
-            return;
+            if (cards.length === 0) {
+                container.innerHTML = `<p style="text-align:center; color:#7f8c8d;">${t.noCards}</p>`;
+                return;
+            }
+
+            container.innerHTML = cards.map(c => `
+                <div class="card-item">
+                    <div class="card-info">
+                        <strong>${c.card_number}</strong><br>
+                        <span style="color: #7f8c8d;">${c.container_capacity} ед.</span>
+                    </div>
+                    <div class="card-actions">
+                        <a href="/kanban/card/${c.id}/pdf/">${t.download}</a>
+                    </div>
+                </div>
+            `).join('');
+        } catch (e) {
+            console.error(e);
+            // Не показываем алерт при ошибке загрузки списка, чтобы не раздражать
         }
-
-        container.innerHTML = cards.map(c => `
-            <div class="card-item">
-                <div class="card-info">
-                    <strong>${c.card_number}</strong><br>
-                    <span style="color: #7f8c8d;">${c.container_capacity} ед.</span>
-                </div>
-                <div class="card-actions">
-                    <a href="/kanban/card/${c.id}/pdf/">${t.download}</a>
-                </div>
-            </div>
-        `).join('');
     }
 
     window.onload = () => {
