@@ -1,5 +1,5 @@
 # ============================================================
-#  KANBAN PRODUCTION CALCULATOR (WITH UI)
+#  KANBAN PRODUCTION CALCULATOR (UI + BUG FIXES)
 # ============================================================
 import io
 import os
@@ -89,59 +89,15 @@ class MaterialPackaging(Base):
     supplier = Column(String, nullable=True)
     part_number = Column(String, nullable=True)
 
-class BOMLine(Base):
-    __tablename__ = "bom_lines"
-    __table_args__ = (UniqueConstraint("product_id", "material_id", "site_id", "version"),)
-    id = Column(Integer, primary_key=True)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
-    material_id = Column(Integer, ForeignKey("materials.id"), nullable=False)
-    site_id = Column(Integer, ForeignKey("sites.id"), nullable=False)
-    qty_per_unit = Column(Float, nullable=False)
-    version = Column(Integer, nullable=False, default=1)
-    valid_from = Column(DateTime, nullable=False, default=_now)
-    valid_to = Column(DateTime, nullable=True)
-    updated_at = Column(DateTime, default=_now, onupdate=_now)
-
-class BOMHistory(Base):
-    __tablename__ = "bom_history"
-    id = Column(Integer, primary_key=True)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
-    material_id = Column(Integer, ForeignKey("materials.id"), nullable=False)
-    site_id = Column(Integer, ForeignKey("sites.id"), nullable=False)
-    old_qty = Column(Float, nullable=False)
-    new_qty = Column(Float, nullable=False)
-    old_version = Column(Integer, nullable=True)
-    new_version = Column(Integer, nullable=True)
-    action = Column(String, default="correct")
-    reason = Column(Text, nullable=True)
-    changed_by = Column(String, nullable=True)
-    changed_at = Column(DateTime, default=_now)
-
-class KanbanLoop(Base):
-    __tablename__ = "kanban_loops"
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    loop_type = Column(String, default="replenishment")
-    from_site_id = Column(Integer, ForeignKey("sites.id"), nullable=True)
-    to_site_id = Column(Integer, ForeignKey("sites.id"), nullable=True)
-    supplier_name = Column(String, nullable=True)
-    notes = Column(Text, nullable=True)
-
 class KanbanCard(Base):
     __tablename__ = "kanban_cards"
     id = Column(Integer, primary_key=True)
     card_number = Column(String, unique=True, nullable=False)
     material_id = Column(Integer, ForeignKey("materials.id"), nullable=False)
     site_id = Column(Integer, ForeignKey("sites.id"), nullable=False)
-    loop_id = Column(Integer, ForeignKey("kanban_loops.id"), nullable=True)
     container_capacity = Column(Float, nullable=False)
-    packaging_id = Column(Integer, ForeignKey("packagings.id"), nullable=True)
-    packaging_name = Column(String, nullable=True)
-    packaging_capacity_native = Column(Float, nullable=True)
-    packaging_native_unit = Column(String, nullable=True)
     reorder_point = Column(Float, nullable=False)
     supplier = Column(String, nullable=True)
-    part_number = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=_now)
 
@@ -163,12 +119,7 @@ class StockMovement(Base):
     quantity = Column(Float, nullable=False)
     quantity_before = Column(Float, nullable=False)
     quantity_after = Column(Float, nullable=False)
-    packaging_id = Column(Integer, ForeignKey("packagings.id"), nullable=True)
-    packaging_qty = Column(Float, nullable=True)
-    expected_qty = Column(Float, nullable=True)
-    delta_qty = Column(Float, nullable=True)
     reason = Column(Text, nullable=True)
-    performed_by = Column(String, nullable=True)
     created_at = Column(DateTime, default=_now)
 
 Base.metadata.create_all(bind=engine)
@@ -188,88 +139,22 @@ class MaterialIn(BaseModel):
     kind: str = "main"
     density_kg_m3: Optional[float] = None
 
-class ProductIn(BaseModel):
-    code: str
+class MaterialNameUpdate(BaseModel):
     name: str
-
-class PackagingIn(BaseModel):
-    code: str
-    name: str
-    packaging_type: str
-    capacity: float = Field(..., gt=0)
-    capacity_unit: str
-    tare_weight_kg: Optional[float] = None
-    net_weight_kg: Optional[float] = None
-    is_returnable: bool = False
-    notes: Optional[str] = None
-    parent_id: Optional[int] = None
-    children_per_unit: Optional[float] = None
-
-class MaterialPackagingIn(BaseModel):
-    material_id: int
-    packaging_id: int
-    is_primary: bool = False
-    supplier: Optional[str] = None
-    part_number: Optional[str] = None
-
-class BOMLineIn(BaseModel):
-    product_id: int
-    material_id: int
-    site_id: int
-    qty_per_unit: float = Field(..., ge=0)
-
-class BOMCorrect(BaseModel):
-    qty_per_unit: float = Field(..., ge=0)
-    reason: Optional[str] = None
-    changed_by: Optional[str] = None
-
-class KanbanProfileIn(BaseModel):
-    product_id: int
-    site_id: int
-    lead_time_days: float = 1.0
-    container_capacity: float = 1.0
-    safety_factor_pct: float = 20.0
-
-class PlanItem(BaseModel):
-    product_id: int
-    site_id: int
-    quantity: float
 
 class GenerateCardsIn(BaseModel):
     material_id: int
     site_id: int
-    loop_id: Optional[int] = None
-    packaging_id: Optional[int] = None
     D: float = Field(..., gt=0)
     L: float = Field(..., gt=0)
     S: float = Field(..., ge=0, le=1)
-    C: Optional[float] = Field(None, gt=0)
+    C: float = Field(..., gt=0)
     supplier: Optional[str] = None
-    part_number: Optional[str] = None
-
-class SendCardIn(BaseModel):
-    to_email: str
-    subject: Optional[str] = None
-    message: Optional[str] = None
-
-class ConvertIn(BaseModel):
-    qty: float = Field(..., ge=0)
-    from_unit: str
-    to_unit: str
-
-class StockOperationIn(BaseModel):
-    material_id: int
-    site_id: int
-    packaging_id: Optional[int] = None
-    packaging_qty: Optional[float] = None
-    actual_base_qty: Optional[float] = Field(None, ge=0)
-    reason: Optional[str] = None
-    performed_by: Optional[str] = None
 
 # ============================================================
-#  ПРИЛОЖЕНИЕ И ХЕЛПЕРЫ
+#  ПРИЛОЖЕНИЕ
 # ============================================================
-app = FastAPI(title="Kanban Production Calculator", version="3.1")
+app = FastAPI(title="Kanban Production Calculator", version="3.2")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 def get_db():
@@ -280,11 +165,7 @@ def get_db():
         db.close()
 
 def _register_card_font() -> str:
-    candidates = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "C:/Windows/Fonts/Arial.ttf",
-        "/System/Library/Fonts/Supplemental/Arial.ttf",
-    ]
+    candidates = ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "C:/Windows/Fonts/Arial.ttf"]
     for path in candidates:
         if os.path.exists(path):
             try:
@@ -295,27 +176,6 @@ def _register_card_font() -> str:
     return "Helvetica"
 _CARD_FONT = _register_card_font()
 
-_UNIT_ALIASES = {"m3": "м³", "м3": "м³", "куб": "м³", "l": "л", "л": "л", "kg": "кг", "кг": "кг", "шт": "шт", "pcs": "шт"}
-def _norm_unit(u: str) -> str:
-    return _UNIT_ALIASES.get((u or "").strip().lower().replace(" ", ""), (u or "").strip().lower())
-
-def convert_qty(qty: float, from_unit: str, to_unit: str, material) -> float:
-    fu, tu = _norm_unit(from_unit), _norm_unit(to_unit)
-    if fu == tu: return qty
-    if fu == "м³" and tu == "л": return qty * 1000
-    if fu == "л" and tu == "м³": return qty / 1000
-    density = getattr(material, "density_kg_m3", None)
-    needs_density = (fu in {"м³", "л"} and tu == "кг") or (fu == "кг" and tu in {"м³", "л"})
-    if needs_density and not density: raise HTTPException(400, "Задайте плотность материала (density_kg_m3)")
-    if fu == "м³" and tu == "кг": return qty * density
-    if fu == "л" and tu == "кг": return qty * density / 1000.0
-    if fu == "кг" and tu == "м³": return qty / density
-    if fu == "кг" and tu == "л": return qty / density * 1000.0
-    raise HTTPException(400, f"Конвертация {from_unit}->{to_unit} невозможна")
-
-def packaging_capacity_in_base(packaging, material) -> float:
-    return convert_qty(packaging.capacity, packaging.capacity_unit, material.unit, material)
-
 def compute_kanban_levels(D: float, L: float, S: float, C: float) -> dict:
     if C <= 0 or D <= 0 or L <= 0: raise HTTPException(400, "D, L, C должны быть > 0")
     demand_lt = D * L
@@ -324,118 +184,66 @@ def compute_kanban_levels(D: float, L: float, S: float, C: float) -> dict:
     n_raw = reorder_point / C
     N = ceil(n_raw)
     max_stock = N * C
-    return {"inputs": {"D": D, "L": L, "S": S, "C": C}, "levels": {"demand_during_lead_time": round(demand_lt, 4), "min_safety_stock": round(safety_stock, 4), "reorder_point": round(reorder_point, 4), "max_stock": round(max_stock, 4)}, "cards": {"N_raw": round(n_raw, 4), "N_rounded_up": N}}
-
-def _packaging_icon(packaging_type: Optional[str]) -> str:
-    return {"box": "📦", "pallet": "🎯", "barrel": "🛢", "ibc": "🚰", "tank": "🏭", "bag": "🧂", "roll": "🎞", "canister": "🪣"}.get((packaging_type or "").lower(), "📦")
-
-def _packaging_label_ru(packaging_type: Optional[str]) -> str:
-    return {"box": "КОРОБКА", "pallet": "ПОДДОН", "barrel": "БОЧКА", "ibc": "IBC", "tank": "ЁМКОСТЬ", "bag": "МЕШОК", "roll": "РУЛОН", "canister": "КАНИСТРА"}.get((packaging_type or "").lower(), "ТАРА")
+    return {"levels": {"reorder_point": round(reorder_point, 4), "max_stock": round(max_stock, 4)}, "cards": {"N_rounded_up": N}}
 
 def _card_data(db: Session, card: KanbanCard) -> dict:
     mat = db.query(Material).get(card.material_id)
     site = db.query(Site).get(card.site_id)
-    loop = db.query(KanbanLoop).get(card.loop_id) if card.loop_id else None
-    packaging = db.query(Packaging).get(card.packaging_id) if card.packaging_id else None
-    packaging_label = f"{card.packaging_name} ({card.packaging_capacity_native:g} {card.packaging_native_unit})" if card.packaging_name else None
     return {
         "card_id": card.id, "card_number": card.card_number, "title": mat.name, "code": mat.code,
-        "kind": "Основное" if mat.kind == "main" else "Вспомогательное",
-        "quantity": card.container_capacity, "unit": mat.unit, "packaging": packaging_label,
-        "packaging_type": packaging.packaging_type if packaging else None,
-        "packaging_icon": _packaging_icon(packaging.packaging_type if packaging else None),
-        "packaging_type_label": _packaging_label_ru(packaging.packaging_type if packaging else None),
-        "reorder_point": card.reorder_point, "supplier": card.supplier or "—", "part_number": card.part_number or "—",
-        "site_code": site.code, "site_name": site.name, "loop_name": loop.name if loop else "—",
-        "created_at": card.created_at
+        "quantity": card.container_capacity, "unit": mat.unit, "reorder_point": card.reorder_point,
+        "supplier": card.supplier or "—", "site_name": site.name, "created_at": card.created_at
     }
-
-def _draw_card_on_canvas(c, data: dict, w_pt: float, h_pt: float):
-    dark, accent, soft = HexColor("#2c3e50"), HexColor("#c0392b"), HexColor("#7f8c8d")
-    c.setStrokeColor(dark); c.setLineWidth(2); c.rect(6, 6, w_pt - 12, h_pt - 12)
-    c.setFillColor(dark); c.rect(6, h_pt - 32, w_pt - 12, 26, fill=1, stroke=0)
-    c.setFillColor(HexColor("#ffffff")); c.setFont(_CARD_FONT, 9); c.drawString(12, h_pt - 18, "КАНБАН-КАРТОЧКА")
-    c.setFont(_CARD_FONT, 8); c.setFillColor(HexColor("#e67e22")); c.drawString(12, h_pt - 28, f"[{data.get('packaging_type_label', 'ТАРА')}]")
-    c.setFillColor(HexColor("#ffffff")); c.setFont(_CARD_FONT, 10); c.drawRightString(w_pt - 12, h_pt - 18, data["card_number"])
-    c.setFillColor(dark); c.setFont(_CARD_FONT, 13); c.drawString(12, h_pt - 52, data["title"][:42])
-    c.setFillColor(soft); c.setFont(_CARD_FONT, 8); c.drawString(12, h_pt - 64, f"{data['code']}  •  {data['kind']}")
-    c.setFillColor(accent); c.setFont(_CARD_FONT, 24); c.drawRightString(w_pt - 12, h_pt - 56, f"{data['quantity']:g}")
-    c.setFillColor(soft); c.setFont(_CARD_FONT, 8); c.drawRightString(w_pt - 12, h_pt - 68, data["unit"])
-    c.setStrokeColor(soft); c.setLineWidth(0.5); c.line(12, h_pt - 76, w_pt - 12, h_pt - 76)
-    y = h_pt - 86
-    rows = [("Точка заказа (ROP)", f"{data['reorder_point']:g} {data['unit']}"), ("Тара", data["packaging"] or "—"), ("Поставщик", data["supplier"]), ("Участок", f"{data['site_code']} — {data['site_name']}")]
-    for label, value in rows:
-        c.setFillColor(soft); c.setFont(_CARD_FONT, 7.5); c.drawString(12, y, label)
-        c.setFillColor(dark); c.setFont(_CARD_FONT, 8); c.drawString(90, y, str(value)[:50]); y -= 11
-    try: code128.Code128(data["card_number"], barWidth=0.9, barHeight=28).drawOn(c, 12, 16)
-    except Exception: pass
 
 def _build_card_pdf(data: dict) -> bytes:
     w_pt, h_pt = 148 * mm, 105 * mm
     buf = io.BytesIO(); c = rl_canvas.Canvas(buf, pagesize=(w_pt, h_pt))
-    _draw_card_on_canvas(c, data, w_pt, h_pt); c.showPage(); c.save(); buf.seek(0)
+    dark, accent = HexColor("#2c3e50"), HexColor("#c0392b")
+    c.setStrokeColor(dark); c.setLineWidth(2); c.rect(6, 6, w_pt - 12, h_pt - 12)
+    c.setFillColor(dark); c.rect(6, h_pt - 32, w_pt - 12, 26, fill=1, stroke=0)
+    c.setFillColor(HexColor("#ffffff")); c.setFont(_CARD_FONT, 10); c.drawString(12, h_pt - 18, "КАНБАН-КАРТОЧКА")
+    c.drawRightString(w_pt - 12, h_pt - 18, data["card_number"])
+    c.setFillColor(dark); c.setFont(_CARD_FONT, 14); c.drawString(12, h_pt - 52, data["title"][:40])
+    c.setFillColor(accent); c.setFont(_CARD_FONT, 24); c.drawRightString(w_pt - 12, h_pt - 56, f"{data['quantity']:g}")
+    c.setFillColor(dark); c.setFont(_CARD_FONT, 10); c.drawString(12, h_pt - 80, f"Точка заказа: {data['reorder_point']:g} {data['unit']}")
+    c.drawString(12, h_pt - 95, f"Поставщик: {data['supplier']}")
+    try: code128.Code128(data["card_number"], barWidth=0.9, barHeight=28).drawOn(c, 12, 16)
+    except Exception: pass
+    c.showPage(); c.save(); buf.seek(0)
     return buf.getvalue()
 
 # ============================================================
-#  НОВЫЕ ЭНДПОИНТЫ ДЛЯ ИНТЕРФЕЙСА
+#  ЭНДПОИНТЫ
 # ============================================================
 @app.get("/materials/")
-def list_materials(db: Session = Depends(get_db)):
-    return db.query(Material).all()
+def list_materials(db: Session = Depends(get_db)): return db.query(Material).all()
+
+@app.patch("/materials/{material_id}/name/")
+def update_material_name(material_id: int, p: MaterialNameUpdate, db: Session = Depends(get_db)):
+    mat = db.query(Material).get(material_id)
+    if not mat: raise HTTPException(404, "Материал не найден")
+    mat.name = p.name
+    db.commit(); return {"status": "ok", "new_name": mat.name}
 
 @app.get("/kanban/cards/")
-def list_cards(db: Session = Depends(get_db)):
-    return db.query(KanbanCard).filter(KanbanCard.is_active == True).all()
-
-# ============================================================
-#  ОСНОВНЫЕ ЭНДПОИНТЫ
-# ============================================================
-@app.post("/sites/")
-def create_site(p: SiteIn, db: Session = Depends(get_db)):
-    s = Site(**p.dict()); db.add(s); db.commit(); db.refresh(s); return s
-
-@app.get("/sites/")
-def list_sites(db: Session = Depends(get_db)): return db.query(Site).all()
-
-@app.post("/materials/")
-def create_material(p: MaterialIn, db: Session = Depends(get_db)):
-    m = Material(**p.dict()); db.add(m); db.commit(); db.refresh(m); return m
-
-@app.post("/products/")
-def create_product(p: ProductIn, db: Session = Depends(get_db)):
-    pr = Product(**p.dict()); db.add(pr); db.commit(); db.refresh(pr); return pr
-
-@app.post("/stock/receive/")
-def stock_receive(p: StockOperationIn, db: Session = Depends(get_db)):
-    mat = db.query(Material).get(p.material_id)
-    if not mat: raise HTTPException(404, "Не найдено")
-    packaging = db.query(Packaging).get(p.packaging_id) if p.packaging_id else None
-    expected = packaging_capacity_in_base(packaging, mat) * p.packaging_qty if packaging and p.packaging_qty else None
-    actual = p.actual_base_qty if p.actual_base_qty is not None else expected
-    if actual is None: raise HTTPException(400, "Ошибка ввода")
-    level = db.query(StockLevel).filter_by(material_id=p.material_id, site_id=p.site_id).first()
-    if not level: level = StockLevel(material_id=p.material_id, site_id=p.site_id, quantity=0); db.add(level)
-    before = level.quantity; level.quantity += actual
-    db.add(StockMovement(material_id=p.material_id, site_id=p.site_id, movement_type="receipt", quantity=actual, quantity_before=before, quantity_after=level.quantity, reason=p.reason))
-    db.commit(); return {"status": "ok", "quantity_after": level.quantity}
-
-@app.post("/kanban/calc/")
-def kanban_calc(D: float, L: float, S: float, C: float):
-    return compute_kanban_levels(D, L, S, C)
+def list_cards(db: Session = Depends(get_db)): return db.query(KanbanCard).filter(KanbanCard.is_active == True).all()
 
 @app.post("/kanban/generate-cards/")
 def generate_cards(p: GenerateCardsIn, db: Session = Depends(get_db)):
-    mat, site = db.query(Material).get(p.material_id), db.query(Site).get(p.site_id)
-    if not mat or not site: raise HTTPException(404, "Не найдено")
-    packaging = db.query(Packaging).get(p.packaging_id) if p.packaging_id else None
-    C = packaging_capacity_in_base(packaging, mat) if packaging else p.C
-    if not C: raise HTTPException(400, "Укажите C или packaging_id")
+    mat = db.query(Material).get(p.material_id)
+    if not mat: raise HTTPException(404, "Материал не найден")
     
-    calc = compute_kanban_levels(p.D, p.L, p.S, C); N = calc["cards"]["N_rounded_up"]; ROP = calc["levels"]["reorder_point"]
-    for c in db.query(KanbanCard).filter_by(material_id=p.material_id, site_id=p.site_id).all(): c.is_active = False
+    calc = compute_kanban_levels(p.D, p.L, p.S, p.C)
+    N = calc["cards"]["N_rounded_up"]
+    ROP = calc["levels"]["reorder_point"]
+    
+    for c in db.query(KanbanCard).filter_by(material_id=p.material_id, site_id=p.site_id).all():
+        c.is_active = False
+        
     for i in range(1, N + 1):
-        db.add(KanbanCard(card_number=f"KBN-{mat.code}-{i:03d}", material_id=p.material_id, site_id=p.site_id, container_capacity=C, reorder_point=ROP, packaging_id=packaging.id if packaging else None, packaging_name=packaging.name if packaging else None, packaging_capacity_native=packaging.capacity if packaging else None, packaging_native_unit=packaging.capacity_unit if packaging else None, supplier=p.supplier))
-    db.commit(); return {"cards_created": N, "calc": calc}
+        db.add(KanbanCard(card_number=f"KBN-{mat.code}-{i:03d}", material_id=p.material_id, site_id=p.site_id, container_capacity=p.C, reorder_point=ROP, supplier=p.supplier))
+    db.commit()
+    return {"cards_created": N, "calc": calc}
 
 @app.get("/kanban/card/{card_id}/pdf/")
 def download_card_pdf(card_id: int, db: Session = Depends(get_db)):
@@ -446,16 +254,14 @@ def download_card_pdf(card_id: int, db: Session = Depends(get_db)):
 @app.post("/seed-demo/")
 def seed_demo(db: Session = Depends(get_db)):
     if db.query(Site).count() > 0: return {"status": "already seeded"}
-    s1 = Site(name="Участок смешивания", code="S1", site_type="production")
+    
     wh = Site(name="Главный склад", code="WH", site_type="warehouse")
-    db.add_all([s1, wh]); db.flush()
+    db.add(wh); db.flush()
+    
     m_sugar = Material(code="SUGAR", name="Сахар", unit="кг", kind="main")
-    db.add(m_sugar); db.flush()
-    pkg_pal = Packaging(code="PAL-SUG", name="Паллета сахара (40 мешков)", packaging_type="pallet", capacity=1000, capacity_unit="кг")
-    db.add(pkg_pal); db.flush()
-    pkg_bag = Packaging(code="BAG-SUG", name="Мешок сахара (25 кг)", packaging_type="bag", capacity=25, capacity_unit="кг", parent_id=pkg_pal.id, children_per_unit=40)
-    db.add(pkg_bag); db.flush()
-    db.add(MaterialPackaging(material_id=m_sugar.id, packaging_id=pkg_bag.id, is_primary=True, supplier="Сахар-Опт"))
+    m_film = Material(code="FILM", name="Плёнка", unit="м", kind="aux")
+    db.add_all([m_sugar, m_film]); db.flush()
+    
     db.commit()
     return {"status": "seeded"}
 
@@ -503,8 +309,12 @@ def index():
     <div class="card">
         <h2 id="calc-title">Расчет карточек</h2>
         <div class="form-group">
-            <label id="lbl-mat">Материал</label>
-            <select id="material_id"></select>
+            <label id="lbl-mat">Выберите материал</label>
+            <select id="material_id" onchange="updateNameField()"></select>
+        </div>
+        <div class="form-group">
+            <label id="lbl-mat-name">Название материала (можно изменить)</label>
+            <input type="text" id="material_name_input" placeholder="Введите название...">
         </div>
         <div class="form-group">
             <label id="lbl-d">Дневная потребность (шт/кг)</label>
@@ -542,7 +352,8 @@ def index():
 <script>
     const translations = {
         ru: {
-            title: "Канбан Система", calcTitle: "Расчет карточек", lblMat: "Материал",
+            title: "Канбан Система", calcTitle: "Расчет карточек", lblMat: "Выберите материал",
+            lblMatName: "Название материала (можно изменить)",
             lblD: "Дневная потребность (шт/кг)", lblL: "Время пополнения (дней)",
             lblS: "Страховой запас (%)", lblC: "Вместимость контейнера",
             btnCalc: "Рассчитать", btnGen: "Создать карточки",
@@ -551,7 +362,8 @@ def index():
             lang: "EN"
         },
         en: {
-            title: "Kanban System", calcTitle: "Card Calculation", lblMat: "Material",
+            title: "Kanban System", calcTitle: "Card Calculation", lblMat: "Select Material",
+            lblMatName: "Material Name (editable)",
             lblD: "Daily Demand (pcs/kg)", lblL: "Lead Time (days)",
             lblS: "Safety Stock (%)", lblC: "Container Capacity",
             btnCalc: "Calculate", btnGen: "Generate Cards",
@@ -563,12 +375,14 @@ def index():
 
     let currentLang = 'ru';
     let currentCalcResult = null;
+    let materialsData = [];
 
     function applyLang() {
         const t = translations[currentLang];
         document.getElementById('app-title').innerText = t.title;
         document.getElementById('calc-title').innerText = t.calcTitle;
         document.getElementById('lbl-mat').innerText = t.lblMat;
+        document.getElementById('lbl-mat-name').innerText = t.lblMatName;
         document.getElementById('lbl-d').innerText = t.lblD;
         document.getElementById('lbl-l').innerText = t.lblL;
         document.getElementById('lbl-s').innerText = t.lblS;
@@ -580,6 +394,7 @@ def index():
         document.getElementById('res-cards').innerText = t.resCards;
         document.getElementById('list-title').innerText = t.listTitle;
         document.getElementById('lang-btn').innerText = t.lang;
+        loadCards();
     }
 
     function toggleLang() {
@@ -588,10 +403,30 @@ def index():
     }
 
     async function loadMaterials() {
-        const res = await fetch('/materials/');
-        const mats = await res.json();
+        let res = await fetch('/materials/');
+        let mats = await res.json();
+        
+        // Если база пустая, автоматически загружаем демо-данные
+        if (mats.length === 0) {
+            document.getElementById('material_id').innerHTML = '<option>Загрузка...</option>';
+            await fetch('/seed-demo/', { method: 'POST' });
+            res = await fetch('/materials/');
+            mats = await res.json();
+        }
+
+        materialsData = mats;
         const select = document.getElementById('material_id');
         select.innerHTML = mats.map(m => `<option value="${m.id}">${m.name} (${m.code})</option>`).join('');
+        updateNameField();
+    }
+
+    function updateNameField() {
+        const select = document.getElementById('material_id');
+        const selectedId = parseInt(select.value);
+        const mat = materialsData.find(m => m.id === selectedId);
+        if (mat) {
+            document.getElementById('material_name_input').value = mat.name;
+        }
     }
 
     async function calculate() {
@@ -613,23 +448,49 @@ def index():
 
     async function generateCards() {
         if (!currentCalcResult) return;
+        
         const material_id = parseInt(document.getElementById('material_id').value);
-        const site_id = 1; // По умолчанию первый участок
+        if (isNaN(material_id)) {
+            alert("Ошибка: Материал не выбран.");
+            return;
+        }
 
+        const newName = document.getElementById('material_name_input').value;
+
+        // 1. Сохраняем новое название материала, если его изменили
+        if (newName) {
+            await fetch(`/materials/${material_id}/name/`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: newName })
+            });
+        }
+
+        // 2. Создаем карточки
         const payload = {
             material_id: material_id,
-            site_id: site_id,
+            site_id: 1,
             ...currentCalcResult
         };
 
-        await fetch('/kanban/generate-cards/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        
-        alert(currentLang === 'ru' ? 'Карточки успешно созданы!' : 'Cards generated successfully!');
-        loadCards();
+        try {
+            const res = await fetch('/kanban/generate-cards/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            
+            if (res.ok) {
+                alert(currentLang === 'ru' ? 'Карточки успешно созданы!' : 'Cards generated successfully!');
+                loadCards();
+                loadMaterials(); // Обновляем список, чтобы увидеть новое имя
+            } else {
+                const err = await res.json();
+                alert("Ошибка сервера: " + JSON.stringify(err));
+            }
+        } catch (e) {
+            alert("Ошибка сети: " + e.message);
+        }
     }
 
     async function loadCards() {
@@ -656,7 +517,6 @@ def index():
         `).join('');
     }
 
-    // Инициализация при загрузке
     window.onload = () => {
         loadMaterials();
         loadCards();
